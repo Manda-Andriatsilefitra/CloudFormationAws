@@ -83,7 +83,7 @@ Resources:
                 cd back-node/
                 
                 #Prendre le mot de pass depuis ssm parameter store
-                DB_PASSWORD=$(aws ssm get-parameter --name "/mgitservice/BDD/passwd" --with-decryption --query "Parameter.Value" --output text --region eu-west-1)
+                DB_PASSWORD=\$(aws ssm get-parameter --name "/mgitservice/BDD/passwd" --with-decryption --query "Parameter.Value" --output text --region eu-west-1)
                 
                 # Créer ou écraser le fichier .env.reset
                 cat <<EOF > .env.reset
@@ -100,12 +100,12 @@ Resources:
                 EOF
 
                 # Charger les variables d'environnement
-                export $(grep -v '^#' .env.reset | xargs)
+                export \$(grep -v '^#' .env.reset | xargs)
                 
                 #Créer une base de données si elle n'existe pas encore
                 until nc -zv ${DBEndpoint} 5432; do sleep 5; done
                 # Se connecter à la base postgres par défaut
-                PGPASSWORD=$DB_PASSWORD psql -h ${DBEndpoint} -U postgres -d postgres <<EOF
+                PGPASSWORD=\$DB_PASSWORD psql -h ${DBEndpoint} -U postgres -d postgres <<EOF
                 DO \$\$
                 BEGIN
                   IF NOT EXISTS (SELECT FROM pg_database WHERE datname = 'backnode') THEN
@@ -115,7 +115,7 @@ Resources:
                 \$\$;
                 EOF
                 # Créer la table si elle n'existe pas
-                PGPASSWORD=$DB_PASSWORD psql -h ${DBEndpoint} -U postgres -d backnode <<EOF
+                PGPASSWORD=\$DB_PASSWORD psql -h ${DBEndpoint} -U postgres -d backnode <<EOF
                 CREATE TABLE IF NOT EXISTS personnes (
                   id SERIAL PRIMARY KEY,
                   email VARCHAR(255) NOT NULL UNIQUE,
@@ -134,7 +134,7 @@ Resources:
                 User=ec2-user
                 WorkingDirectory=/home/ec2-user/back-node
                 Environment=HOME=/home/ec2-user
-                ExecStart=/bin/bash -c "export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\"; nvm use default; pm2-runtime start npm -- run reset"
+                ExecStart=/bin/bash -c "export NVM_DIR=\"\$HOME/.nvm\"; [ -s \"\$NVM_DIR/nvm.sh\" ] && . \"\$NVM_DIR/nvm.sh\"; nvm use default; pm2-runtime start npm -- run reset"
                 Restart=always
 
                 [Install]

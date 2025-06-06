@@ -20,7 +20,7 @@ Resources:
         Fn::ImportValue: !Sub "${EnvironmentName}-SG-FRONTEND"  # Le SG RDS
       IpProtocol: -1
       SourceSecurityGroupId: 
-        Fn::ImportValue: !Sub "${EnvironmentName}-ALB-FRONT"
+        Fn::ImportValue: !Sub "${EnvironmentName}-SG-ALB-FRONT"
   #Création de l'ALB-FRONT  
   ALBFRONT:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
