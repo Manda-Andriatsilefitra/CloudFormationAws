@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: stack pour frontend auto sclaing
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Nom de l'environnement (dev, preprod, prod)
+    Default: dev
+    AllowedValues:
+      - dev
+      - preprod
+      - prod
+
+Resources:
+  #Inbound rules de SG-Backend
+  AlbIntIngressFromFront:
+   Type: AWS::EC2::SecurityGroupIngress
+   Properties:
+     GroupId:
+       Fn::ImportValue: !Sub "${EnvironmentName}-SG-ALB-INTERN"  # Le SG BACKEND
+     IpProtocol: -1
+     SourceSecurityGroupId:
+       Fn::ImportValue: !Sub "${EnvironmentName}-SG-FRONTEND"
+
+  # Target group du front
+  TGFRONT:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: tgfront
+      Port: 80           #Port du serveur frontend
+      Protocol: HTTP
+      VpcId: 
+        Fn::ImportValue: !Sub "${EnvironmentName}-vpc-id"
+      HealthCheckPath: /
+      TargetType: instance
+
+  #------------------ FRONTEND ---------------------------
+  #Création du launch template
+  LaunchTemplateFront:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: ami-00727bc826e168ac2
+        InstanceType: t3a.micro
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub "${EnvironmentName}-SG-FRONTEND"
+        IamInstanceProfile:
+          Name: !ImportValue InstanceProfile-Frontend
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Value: !Sub "${EnvironmentName}-FRONTEND"
+                Key: Name
+        UserData: 
+          Fn::Base64: 
+            !Sub
+              - |
+                #!/bin/bash
+
+                #aller dans le chemin
+                cd /usr/share/nginx/html/
+                rm -rf /usr/share/nginx/html/*
+
+                #copie du fichier de s3
+                aws s3 cp s3://mgitservice/apps/frontend/dist/ . --recursive
+                cat <<EOF | sudo tee /etc/nginx/conf.d/default.conf > /dev/null
+                server {
+                    listen 80;
+
+                    location / {
+                        root /usr/share/nginx/html;
+                        index index.html;
+                        try_files \$uri \$uri/ /index.html;
+                    }
+
+                    location /api/ {
+                       
+
+                        proxy_pass http://${ALBBackendDNS}/back-node/;
+                        proxy_http_version 1.1;
+                        proxy_set_header Host $host;
+                        proxy_set_header X-Real-IP $remote_addr;
+                        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                    }
+                }
+                EOF
+
+                sudo nginx -t && sudo systemctl reload nginx
+
+                #Agent cloud watch
+                cat <<EOF | sudo tee /opt/aws/amazon-cloudwatch-agent/bin/config.json > /dev/null
+                {
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "/var/log/messages",
+                            "log_group_name": "/mgitservice/preprod/system",
+                            "log_stream_name": "{instance_id}_messages"
+                          },
+                          {
+                            "file_path": "/var/log/secure",
+                            "log_group_name": "/mgitservice/preprod/system",
+                            "log_stream_name": "{instance_id}_secure"
+                          },
+                          {
+                            "file_path": "/var/log/cron",
+                            "log_group_name": "/mgitservice/preprod/system",
+                            "log_stream_name": "{instance_id}_cron"
+                          },
+                          {
+                            "file_path": "/var/log/yum.log",
+                            "log_group_name": "/mgitservice/preprod/system",
+                            "log_stream_name": "{instance_id}_yum"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+                EOF
+
+                #Charger la configuration : 
+                sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json -s
+
+                systemctl enable amazon-cloudwatch-agent
+                systemctl restart amazon-cloudwatch-agent
+              - ALBBackendDNS: 
+                  !ImportValue
+                    Fn::Sub: "${EnvironmentName}-ALB-BACKEND-DNS"
+
+  #Auto Scaling Group du Frontend
+  ASGFrontend:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplateFront
+        Version: !GetAtt LaunchTemplateFront.LatestVersionNumber
+      MinSize: '1'
+      MaxSize: '1'
+      DesiredCapacity: '1'
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-subnet-private-a"
+        # - !ImportValue !Sub "${EnvironmentName}-subnet-private-b"
+      TargetGroupARNs:
+        - !Ref TGFRONT
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 60
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-Frontend-Instance"
+          PropagateAtLaunch: true
+
+Outputs:
+
+  TGFrontend:
+    Description: DNS de l'ALB public front
+    Value: !Ref TGFRONT
+    Export:
+      Name: !Sub "${EnvironmentName}-TGFRONT"

@@ -1,0 +1,216 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Création du VPC, subnets, route tables et Internet Gateway - Multi-env
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Nom de l'environnement (dev, preprod, prod)
+    Default: dev
+    AllowedValues:
+      - dev
+      - preprod
+      - prod
+
+  VPCCIDR:
+    Type: String
+    Description: CIDR pour le VPC
+    Default: 10.0.0.0/16
+
+  PublicSubnetACIDR:
+    Type: String
+    Description: CIDR du subnet public A
+    Default: 10.0.1.0/24
+
+  PublicSubnetBCIDR:
+    Type: String
+    Description: CIDR du subnet public B
+    Default: 10.0.2.0/24
+
+  PrivateSubnetACIDR:
+    Type: String
+    Description: CIDR du subnet privé A
+    Default: 10.0.11.0/24
+
+  PrivateSubnetBCIDR:
+    Type: String
+    Description: CIDR du subnet privé B
+    Default: 10.0.12.0/24
+
+  AvailabilityZoneA:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Première zone de disponibilité
+    Default: eu-west-1a
+
+  AvailabilityZoneB:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: Deuxième zone de disponibilité
+    Default: eu-west-1b
+
+Resources:
+
+  # === VPC ===
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VPCCIDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvironmentName, vpc]]
+
+  # === Internet Gateway ===
+  IG:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvironmentName, igw]]
+
+  # === Attach IGW to VPC ===
+  AttachIGW:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IG
+
+  # === Subnet Public A ===
+  SubnetPublicA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetACIDR
+      AvailabilityZone: !Ref AvailabilityZoneA
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvironmentName, subnet-public-a]]
+
+  # === Subnet Public B ===
+  SubnetPublicB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnetBCIDR
+      AvailabilityZone: !Ref AvailabilityZoneB
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvironmentName, subnet-public-b]]
+
+  # === Subnet Privé A ===
+  SubnetPrivateA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetACIDR
+      AvailabilityZone: !Ref AvailabilityZoneA
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvironmentName, subnet-private-a]]
+
+  #Subnet Privé B 
+  SubnetPrivateB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnetBCIDR
+      AvailabilityZone: !Ref AvailabilityZoneB
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvironmentName, subnet-private-b]]
+
+  # Route Table Publique 
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvironmentName, public-route-table]]
+
+  # Route par défaut vers IGW 
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IG
+
+  # Associer les subnets publics à la route table publique 
+  SubnetAPublicToRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPublicA
+      RouteTableId: !Ref PublicRouteTable
+
+  SubnetBPublicToRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPublicB
+      RouteTableId: !Ref PublicRouteTable
+
+  # Route Table Privée
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Join ["-", [!Ref EnvironmentName, private-route-table]]
+
+  # Associer les subnets privés à la route table privée
+  SubnetAPrivateToRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPrivateA
+      RouteTableId: !Ref PrivateRouteTable
+
+  SubnetBPrivateToRouteTable:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetPrivateB
+      RouteTableId: !Ref PrivateRouteTable
+
+Outputs:
+  VpcId:
+    Description: ID du VPC exporté
+    Value: !Ref VPC
+    Export:
+      Name: !Join ["-", [!Ref EnvironmentName, vpc-id]]
+
+  SubnetPublicA:
+    Description: Le subnet public A exporté
+    Value: !Ref SubnetPublicA
+    Export:
+      Name: !Join ["-", [!Ref EnvironmentName, subnet-public-a]]
+
+  SubnetPublicB:
+    Description: Le subnet public B exporté
+    Value: !Ref SubnetPublicB
+    Export:
+      Name: !Join ["-", [!Ref EnvironmentName, subnet-public-b]]
+
+  SubnetPrivateA:
+    Description: Le subnet privé A exporté
+    Value: !Ref SubnetPrivateA
+    Export:
+      Name: !Join ["-", [!Ref EnvironmentName, subnet-private-a]]
+
+  SubnetPrivateB:
+    Description: Le subnet privé B exporté
+    Value: !Ref SubnetPrivateB
+    Export:
+      Name: !Join ["-", [!Ref EnvironmentName, subnet-private-b]]
+
+  PublicRouteTable:
+    Description: La route table publique exportée
+    Value: !Ref PublicRouteTable
+    Export:
+      Name: !Join ["-", [!Ref EnvironmentName, public-route-table]]
+
+  PrivateRouteTable:
+    Description: La route table privée exportée
+    Value: !Ref PrivateRouteTable
+    Export:
+      Name: !Join ["-", [!Ref EnvironmentName, private-route-table]]

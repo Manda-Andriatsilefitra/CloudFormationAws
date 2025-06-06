@@ -1,0 +1,208 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Gestion des Security Groups pour ALB, Frontend, Backend et Bastion
+
+Parameters:
+  MyPublicIp:
+    Type: String
+    Description: Ip qui accede a ALB-FRONT
+    Default: "129.222.109.61/32"
+
+  EnvironmentName:
+    Type: String
+    Description: Nom de l'environnement (dev, preprod, prod)
+    AllowedValues:
+      - dev
+      - preprod
+      - prod
+    Default: dev
+
+
+Resources:
+  #Security group de l'ALB-FRONT
+  SGALBFRONT:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SG-ALB-FRONT
+      GroupDescription: Security Group pour l ALB du frontend
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-vpc-id"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref MyPublicIp
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref MyPublicIp
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-SG-ALB-FRONT"
+
+  #Security group du FRONTEND
+  SGFRONTEND:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SG-FRONTEND
+      GroupDescription: Security Group pour frontend
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-vpc-id"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-SG-FRONTEND"
+
+  #Security group de l'ALB-INTERN
+  SGALBINTERN:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SG-ALB-INTERN
+      GroupDescription: Security Group pour l ALB interne
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-vpc-id"  #Dans export VPC-network
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-SG-ALB-INTERN"
+
+  #Security group de BACKEND
+  SGBACKEND:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SG-BACKEND
+      GroupDescription: Security Group pour backend
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-vpc-id"
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-SG-BACKEND"
+
+  #Security group de VPC-ENDPOINT-SSM
+  SGVPCENDPOINTSSM:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SG-VPC-ENDPOINT-SSM
+      GroupDescription: Security Group pour VPC Endpoint SSM
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-vpc-id"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.0.11.0/24
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.0.12.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-SG-VPC-ENDPOINT-SSM"
+
+  #Security group de VPC-ENDPOINT-CLOUDWATCH
+  SGVPCENDPOINTCLOUDWATCH:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SG-VPC-ENDPOINT-CLOUDWATCH
+      GroupDescription: Security Group pour VPC Endpoint CloudWatch
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-vpc-id"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.0.11.0/24
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 10.0.12.0/24
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-SG-VPC-ENDPOINT-CLOUDWATCH"
+
+  SGDATABASE:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SG-DATABASE
+      GroupDescription: Security Group pour La base RDS
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-vpc-id"
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-SG-DATABASE"
+
+  SGBASTION:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SG-BASTION
+      GroupDescription: Security Group pour Bastion Host
+      VpcId: 
+        Fn::ImportValue:
+          !Sub "${EnvironmentName}-vpc-id"
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-SG-BASTION"
+Outputs:
+  SGALBFront:
+    Description: Security Group pour l'ALB public (frontend)
+    Value: !Ref SGALBFRONT
+    Export:
+      Name: !Sub "${EnvironmentName}-SG-ALB-FRONT"
+
+  SGFrontend:
+    Description: Security Group pour les instances frontend
+    Value: !Ref SGFRONTEND
+    Export:
+      Name: !Sub "${EnvironmentName}-SG-FRONTEND"
+
+  SGALBIntern:
+    Description: Security Group pour l'ALB interne (backend)
+    Value: !Ref SGALBINTERN
+    Export:
+      Name: !Sub "${EnvironmentName}-SG-ALB-INTERN"
+
+  SGBackend:
+    Description: Security Group pour les instances backend
+    Value: !Ref SGBACKEND
+    Export:
+      Name: !Sub "${EnvironmentName}-SG-BACKEND"
+
+  SGVPCEndpointSSM:
+    Description: Security Group pour VPC Endpoint SSM
+    Value: !Ref SGVPCENDPOINTSSM
+    Export:
+      Name: !Sub "${EnvironmentName}-SG-VPC-ENDPOINT-SSM"
+
+  SGVPCEndpointCloudWatch:
+    Description: Security Group pour VPC Endpoint CloudWatch
+    Value: !Ref SGVPCENDPOINTCLOUDWATCH
+    Export:
+      Name: !Sub "${EnvironmentName}-SG-VPC-ENDPOINT-CLOUDWATCH"
+
+  SGDatabase:
+    Description: Security Group pour la base de données (RDS)
+    Value: !Ref SGDATABASE
+    Export:
+      Name: !Sub "${EnvironmentName}-SG-DATABASE"
+
+  SGBastion:
+    Description: Security Group pour Bastion Host
+    Value: !Ref SGBASTION
+    Export:
+      Name: !Sub "${EnvironmentName}-SG-BASTION"

@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Créer une instance RDS à partir d’un snapshot existant
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Environnement qui doit être l'un d'entre (dev, preprod, prod)
+    AllowedValues: [dev, preprod, prod]
+    Default: dev
+
+  # DBInstanceIdentifier:
+  #   Type: String
+  #   Default: rds-from-snapshot
+
+  DBSnapshotIdentifier:
+    Type: String
+    Description: Nom ou ARN du snapshot RDS
+
+Resources:
+  MyRestoredDBInstance:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub "${EnvironmentName}-DATABASE"
+      DBSnapshotIdentifier: !Ref DBSnapshotIdentifier
+      DBInstanceClass: db.t4g.micro
+      Engine: postgres  
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-SG-DATABASE"
+      PubliclyAccessible: false
+      MultiAZ: false
+      DeletionProtection: false
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-rds-restored"
+
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: rds-subnet-group-euw1a
+      DBSubnetGroupDescription: Groupe de sous-réseaux pour RDS
+      SubnetIds:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-subnet-private-a"
+        - Fn::ImportValue: !Sub "${EnvironmentName}-subnet-private-b"
+      Tags:
+        - Key: Name
+          Value: rds-subnet-group-euw1a
+
+Outputs:
+  RdsEndpoint:
+    Description: Endpoint de la base RDS restaurée depuis snapshot
+    Value: !GetAtt MyRestoredDBInstance.Endpoint.Address
+    Export:
+      Name: !Sub "${EnvironmentName}-rds-endpoint"

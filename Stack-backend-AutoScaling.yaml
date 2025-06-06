@@ -1,0 +1,217 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Stack pour backend auto scaling
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Nom de l'environnement (dev, preprod, prod)
+    Default: dev
+    AllowedValues:
+      - dev
+      - preprod
+      - prod
+
+Resources:
+
+  #Ajout de trafic entrant dans le SG DAtabase
+  RDSIngressFromBackend:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: 
+        Fn::ImportValue: !Sub "${EnvironmentName}-SG-DATABASE"  # Le SG RDS
+      IpProtocol: tcp
+      FromPort: 5432   # Port database
+      ToPort: 5432
+      SourceSecurityGroupId: 
+        Fn::ImportValue: !Sub "${EnvironmentName}-SG-BACKEND"
+
+  #Création du target group
+  TGBACKEND:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: tgbackend
+      Port: 3000    #Port de l'application Back-node
+      Protocol: HTTP
+      VpcId: 
+        Fn::ImportValue: !Sub "${EnvironmentName}-vpc-id"
+      HealthCheckPath: /back-node
+      TargetType: instance
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-TGBACKEND"
+
+  #------------------ BACKEND ---------------------------
+  #Création du launch template
+  LaunchTemplateBackend:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateData:
+        ImageId: ami-04316ecf2f42b6c82
+        InstanceType: t3a.micro
+        SecurityGroupIds:
+          - Fn::ImportValue: !Sub "${EnvironmentName}-SG-BACKEND"
+        IamInstanceProfile:
+          Name: !ImportValue InstanceProfile-Backend
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Value: !Sub "${EnvironmentName}-BACKEND"
+                Key: Name
+        UserData: 
+          Fn::Base64: 
+            !Sub
+              - |
+                #!/bin/bash
+                set -e
+
+                #se connecter avec user
+                sudo su ec2-user
+
+                #aller dans le chemin
+                cd /home/ec2-user/
+
+                #copie du fichier de s3
+                aws s3 cp s3://mgitservice/apps/backend/back-node.tar.zip .
+
+                #decompréssion 
+                tar -xzvf back-node.tar.zip
+
+                #suppression du fichier compressé
+                rm back-node.tar.zip
+
+                #entrer dans le dossier back-node
+                cd back-node/
+                
+                #Prendre le mot de pass depuis ssm parameter store
+                DB_PASSWORD=$(aws ssm get-parameter --name "/mgitservice/BDD/passwd" --with-decryption --query "Parameter.Value" --output text --region eu-west-1)
+                
+                # Créer ou écraser le fichier .env.reset
+                cat <<EOF > .env.reset
+                # Information sur l'environnement
+                NODE_ENV=reset
+                PORT=3000
+
+                # Information sur la base de données
+                DB_HOST=${DBEndpoint}
+                DB_PORT=5432
+                DB_USERNAME=postgres
+                DB_PASSWORD=$DB_PASSWORD
+                DB_DATABASE=backnode
+                EOF
+
+                # Charger les variables d'environnement
+                export $(grep -v '^#' .env.reset | xargs)
+                
+                #Créer une base de données si elle n'existe pas encore
+                until nc -zv ${DBEndpoint} 5432; do sleep 5; done
+                # Se connecter à la base postgres par défaut
+                PGPASSWORD=$DB_PASSWORD psql -h ${DBEndpoint} -U postgres -d postgres <<EOF
+                DO \$\$
+                BEGIN
+                  IF NOT EXISTS (SELECT FROM pg_database WHERE datname = 'backnode') THEN
+                    CREATE DATABASE backnode;
+                  END IF;
+                END
+                \$\$;
+                EOF
+                # Créer la table si elle n'existe pas
+                PGPASSWORD=$DB_PASSWORD psql -h ${DBEndpoint} -U postgres -d backnode <<EOF
+                CREATE TABLE IF NOT EXISTS personnes (
+                  id SERIAL PRIMARY KEY,
+                  email VARCHAR(255) NOT NULL UNIQUE,
+                  password TEXT NOT NULL,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                EOF
+
+                #lancer le serveur avec systemd
+                sudo cat <<EOF | sudo tee /etc/systemd/system/reset-app.service > /dev/null
+                [Unit]
+                Description=Reset App Service
+                After=network.target
+
+                [Service]
+                User=ec2-user
+                WorkingDirectory=/home/ec2-user/back-node
+                Environment=HOME=/home/ec2-user
+                ExecStart=/bin/bash -c "export NVM_DIR=\"$HOME/.nvm\"; [ -s \"$NVM_DIR/nvm.sh\" ] && . \"$NVM_DIR/nvm.sh\"; nvm use default; pm2-runtime start npm -- run reset"
+                Restart=always
+
+                [Install]
+                WantedBy=multi-user.target
+                EOF
+
+                sudo systemctl daemon-reload
+                sudo systemctl enable reset-app.service --now
+                sudo systemctl start reset-app.service
+
+                #Agent cloud watch
+                sudo cat <<EOF | sudo tee /opt/aws/amazon-cloudwatch-agent/bin/config.json > /dev/null
+                {
+                  "logs": {
+                    "logs_collected": {
+                      "files": {
+                        "collect_list": [
+                          {
+                            "file_path": "/home/ec2-user/back-node/*.log",
+                            "log_group_name": "/mgitservice/preprod/backend",
+                            "log_stream_name": "{instance_id}_back-node"
+                          }
+                        ]
+                      }
+                    }
+                  }
+                }
+                EOF
+
+                #Charger la configuration : 
+                sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json -s
+
+                sudo systemctl enable amazon-cloudwatch-agent
+                sudo systemctl restart amazon-cloudwatch-agent
+              - DBEndpoint: 
+                  Fn::ImportValue: 
+                    !Sub "${EnvironmentName}-rds-endpoint"
+
+  
+  # Auto Scaling Group du Backend 
+  ASGBackend:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplateBackend
+        Version: !GetAtt LaunchTemplateBackend.LatestVersionNumber
+      MinSize: '1'
+      MaxSize: '1'
+      DesiredCapacity: '1'
+      VPCZoneIdentifier:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-subnet-private-a"
+        # - !ImportValue !Sub "${EnvironmentName}-subnet-private-b"
+      TargetGroupARNs:
+        - !Ref TGBACKEND
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 60
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-Backend-Instance"
+          PropagateAtLaunch: true
+
+Outputs:
+  TGBackend:
+    Description: DNS de l'ALB private backend
+    Value: !Ref TGBACKEND
+    Export:
+      Name: !Sub "${EnvironmentName}-TGBACKEND"
+
+  LaunchTemplateBackend:
+    Description: ID du launch template backend
+    Value: !Ref LaunchTemplateBackend
+    Export:
+      Name: LaunchTemplateBackend
+
+  LaunchTemplateBackendVersion:
+      Description: Version du launch template frontend
+      Value: !GetAtt LaunchTemplateBackend.LatestVersionNumber
+      Export:
+        Name: LaunchTemplateBackendVersion
+

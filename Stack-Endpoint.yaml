@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC endoints
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Nom de l'environnement (dev, preprod, prod)
+    AllowedValues:
+      - dev
+      - preprod
+      - prod
+    Default: dev
+
+
+Resources:
+  #############################################
+  ############## SERVICE S3 ###################
+  #############################################
+  #---- VPC-Endpoint pour S3 -------------
+  VPCEndointS3:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: com.amazonaws.eu-west-1.s3
+      VpcId: 
+        Fn::ImportValue:
+          !Join ["-", [!Ref EnvironmentName, vpc-id]]
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, private-route-table]]
+      Tags: 
+      - Key: Name
+        Value: !Sub "${EnvironmentName}-VPC-Endoint-S3"
+
+  #############################################
+  ########## SERVICE CloudWatch ###############
+  #############################################
+  #-------Pour CloudWatch ----------------
+  VPCEndpointCloudWatch:
+    Type: AWS::EC2::VPCEndpoint
+    Properties: 
+      ServiceName: com.amazonaws.eu-west-1.ec2
+      VpcId: 
+        Fn::ImportValue:
+          !Join ["-", [!Ref EnvironmentName, vpc-id]]
+      VpcEndpointType: Interface
+      SubnetIds:
+        - Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, subnet-private-a]]
+        - Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, subnet-private-b]]
+      SecurityGroupIds: 
+        - Fn::ImportValue: !Sub "${EnvironmentName}-SG-VPC-ENDPOINT-CLOUDWATCH"
+      PrivateDnsEnabled: True
+      Tags: 
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-VPC-Endpoint-CloudWatch"
+
+  #############################################
+  ############### SERVICE SSM #################
+  #############################################
+  # ------ SSMMessage ------------------------------
+  VPCENdpointSSMmessage:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: com.amazonaws.eu-west-1.ssmmessages
+      VpcId: 
+        Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, vpc-id]]
+      VpcEndpointType: Interface
+      SubnetIds:
+        - Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, subnet-private-a]]
+        - Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, subnet-private-b]]
+      SecurityGroupIds: 
+        - Fn::ImportValue: !Sub "${EnvironmentName}-SG-VPC-ENDPOINT-SSM"
+      PrivateDnsEnabled: True
+      Tags: 
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-VPC-ENdpoint-SSMmessage"
+    
+  #----------------- Logs ------------------------
+  VPCEndpointLogs:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: com.amazonaws.eu-west-1.logs
+      VpcId: 
+        Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, vpc-id]]
+      VpcEndpointType: Interface
+      SubnetIds:
+        - Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, subnet-private-a]]
+        - Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, subnet-private-b]]
+      SecurityGroupIds: 
+        - Fn::ImportValue: !Sub "${EnvironmentName}-SG-VPC-ENDPOINT-SSM"
+      PrivateDnsEnabled: True
+      Tags: 
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-VPC-Endpoint-Logs"
+
+  #-------------- EC2 message -----------------
+  VPCEndpointEC2Message:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: com.amazonaws.eu-west-1.ec2messages
+      VpcId: 
+        Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, vpc-id]]
+      VpcEndpointType: Interface
+      SubnetIds:
+        - Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, subnet-private-a]]
+        - Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, subnet-private-b]]
+      SecurityGroupIds: 
+        - Fn::ImportValue: !Sub "${EnvironmentName}-SG-VPC-ENDPOINT-SSM"
+      PrivateDnsEnabled: True
+      Tags: 
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-VPC-Endpoint-EC2Message"
+  
+  #---------------SSM Agent -------------------
+  VPCEndpointSSMAgent:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      ServiceName: com.amazonaws.eu-west-1.ssm
+      VpcId: 
+        Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, vpc-id]]
+      VpcEndpointType: Interface
+      SubnetIds:
+        - Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, subnet-private-a]]
+        - Fn::ImportValue: !Join ["-", [!Ref EnvironmentName, subnet-private-b]]
+      SecurityGroupIds: 
+        - Fn::ImportValue: !Sub "${EnvironmentName}-SG-VPC-ENDPOINT-SSM"
+      PrivateDnsEnabled: True
+      Tags: 
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-VPC-Endpoint-SSMAgent"

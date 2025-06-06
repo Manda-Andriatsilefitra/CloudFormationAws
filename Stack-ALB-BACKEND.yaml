@@ -1,0 +1,57 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Creation du ALB
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Nom de l'environnement (dev, preprod, prod)
+    Default: dev
+    AllowedValues:
+      - dev
+      - preprod
+      - prod
+
+Resources:
+#Inbound rules de SG-Backend
+  BACKIngressFromALB:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: 
+        Fn::ImportValue: !Sub "${EnvironmentName}-SG-BACKEND"  # Le SG BACKEND
+      IpProtocol: -1
+      SourceSecurityGroupId: 
+        Fn::ImportValue: !Sub "${EnvironmentName}-SG-ALB-INTERN"
+
+#Création de l'ALB-BACKEND
+  ALBBACKEND:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: albbackend
+      Scheme: internal
+      Type: application
+      Subnets:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-subnet-private-a"
+        - Fn::ImportValue: !Sub "${EnvironmentName}-subnet-private-b"
+      SecurityGroups:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-SG-ALB-INTERN"
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-ALB-BACKEND"
+
+  InternalListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALBBACKEND
+      Port: 80                 #Port d'écoute de l'ALB
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: 
+            Fn::ImportValue: !Sub "${EnvironmentName}-TGBACKEND"
+
+Outputs:
+  ALBBackendDNS:
+    Description: DNS de l'ALB private backend
+    Value: !GetAtt ALBBACKEND.DNSName
+    Export:
+      Name: !Sub "${EnvironmentName}-ALB-BACKEND-DNS"

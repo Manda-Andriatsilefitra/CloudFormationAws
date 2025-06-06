@@ -1,0 +1,56 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Stack pour alb front
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Nom de l'environnement (dev, preprod, prod)
+    Default: dev
+    AllowedValues:
+      - dev
+      - preprod
+      - prod
+
+Resources:
+  #Trafic entrant dans frontend
+  FrontendIngressFromAlbFront:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: 
+        Fn::ImportValue: !Sub "${EnvironmentName}-SG-FRONTEND"  # Le SG RDS
+      IpProtocol: -1
+      SourceSecurityGroupId: 
+        Fn::ImportValue: !Sub "${EnvironmentName}-ALB-FRONT"
+  #Création de l'ALB-FRONT  
+  ALBFRONT:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: albfront
+      Scheme: internet-facing
+      Type: application
+      Subnets:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-subnet-public-a"
+        - Fn::ImportValue: !Sub "${EnvironmentName}-subnet-public-b"
+      SecurityGroups:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-SG-ALB-FRONT"
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-ALB-FRONT"
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ALBFRONT
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: 
+            Fn::ImportValue: !Sub "${EnvironmentName}-TGFRONT"
+
+Outputs:
+  ALBFrontDNS:
+    Description: DNS de l'ALB public frontend
+    Value: !GetAtt ALBFRONT.DNSName
+    Export:
+      Name: !Sub "${EnvironmentName}-ALB-FRONT-DNS"

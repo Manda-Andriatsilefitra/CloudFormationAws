@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Stack pour Bastion host
+Parameters:
+  EnvironmentName:
+    Type: String
+    Description: Nom de l'environnement (dev, preprod, prod)
+    Default: dev
+    AllowedValues:
+      - dev
+      - preprod
+      - prod
+
+  ImageId:
+    Type: AWS::EC2::Image::Id # Type de ressource
+    Description: L'image à utiliser
+    Default: ami-04d6e0e266ea5c2fd
+  AZ: 
+    Type: AWS::EC2::AvailabilityZone::Name # Type de ressource
+    Description: Nom de la zone Availible
+    Default: eu-west-1a
+
+Resources:
+  #Ajout de trafic entrant dans le SG DAtabase
+  RDSIngressFromBastion:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: 
+        Fn::ImportValue: !Sub "${EnvironmentName}-SG-DATABASE"  # Le SG RDS
+      IpProtocol: tcp
+      FromPort: 5432   # Port database
+      ToPort: 5432
+      SourceSecurityGroupId: 
+        Fn::ImportValue: !Sub "${EnvironmentName}-SG-BASTION"
+
+  MyInstance:
+    Type: AWS::EC2::Instance  # Type de ressource AWS
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t3a.micro
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub "${EnvironmentName}-SG-BASTION"
+      SubnetId: 
+        Fn::ImportValue: 
+          !Sub "${EnvironmentName}-subnet-private-a"
+      AvailabilityZone: !Ref AZ
+      IamInstanceProfile: !ImportValue InstanceProfile-Bastion
+      Tags:
+        - Key: Name
+          Value: !Sub "${EnvironmentName}-BASTION-HOST"

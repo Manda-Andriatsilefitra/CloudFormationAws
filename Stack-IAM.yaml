@@ -1,0 +1,149 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Roles IAM pour Bastion, Frontend et Backend
+
+Resources:
+  RoleBastion:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  InstanceProfileBastion:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref RoleBastion
+
+  RoleFrontend:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: AccessCloudWatch
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:*
+                Resource: "*"
+        - PolicyName: AccessS3FrontEnd
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: "arn:aws:s3:::mgitservice"
+                Condition:
+                  StringLike:
+                    s3:prefix: apps/frontend/*
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: arn:aws:s3:::mgitservice/apps/frontend/*
+
+
+  InstanceProfileFrontend:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref RoleFrontend
+
+  RoleBackend:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: AccessS3Backend
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: "arn:aws:s3:::mgitservice"
+                Condition:
+                  StringLike:
+                    s3:prefix: apps/backend/*
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: arn:aws:s3:::mgitservice/apps/backend/*
+        - PolicyName: AccessCloudWatch
+          PolicyDocument: 
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - cloudwatch:PutMetricData
+                  - logs:PutLogEvents
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - ec2:DescribeTags
+                  - ssm:UpdateInstanceInformation
+                  - ssm:DescribeInstanceInformation
+                Resource: "*"
+        - PolicyName: AccessSSSMParameter
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: 
+                  - ssm:GetParameter
+                Resource: "arn:aws:ssm:eu-west-1:879381257984:parameter/mgitservice/BDD/passwd"
+
+  InstanceProfileBackend:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+        - !Ref RoleBackend
+
+Outputs:
+  InstanceProfileBastion:
+    Description: Instance profile pour Bastion
+    Value: !Ref InstanceProfileBastion
+    Export:
+      Name: InstanceProfile-Bastion
+
+  InstanceProfileFrontend:
+    Description: Instance profile pour Frontend
+    Value: !Ref InstanceProfileFrontend
+    Export:
+      Name: InstanceProfile-Frontend
+
+  InstanceProfileBackend:
+    Description: Instance profile pour Backend
+    Value: !Ref InstanceProfileBackend
+    Export:
+      Name: InstanceProfile-Backend
